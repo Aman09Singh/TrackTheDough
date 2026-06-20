@@ -16,12 +16,14 @@ class SmsImporter @Inject constructor(
     private val categorizer: AutoCategorizer,
     private val repository: TransactionRepository,
 ) {
-    suspend fun importAll() = withContext(Dispatchers.IO) {
+    // Returns false if SMS permission was denied.
+    // Uses the same smsId format as SmsBroadcastReceiver ("address_timestamp") so both
+    // paths share the same deduplication key and the same SMS is never inserted twice.
+    suspend fun importAll(): Boolean = withContext(Dispatchers.IO) {
         val cursor = try {
             context.contentResolver.query(
                 Telephony.Sms.Inbox.CONTENT_URI,
                 arrayOf(
-                    Telephony.Sms._ID,
                     Telephony.Sms.ADDRESS,
                     Telephony.Sms.BODY,
                     Telephony.Sms.DATE,
@@ -30,22 +32,23 @@ class SmsImporter @Inject constructor(
                 "${Telephony.Sms.DATE} DESC",
             )
         } catch (e: SecurityException) {
-            return@withContext // Permission not yet granted
-        } ?: return@withContext
+            return@withContext false
+        } ?: return@withContext false
 
         cursor.use {
-            val idIdx = it.getColumnIndexOrThrow(Telephony.Sms._ID)
             val addressIdx = it.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
             val bodyIdx = it.getColumnIndexOrThrow(Telephony.Sms.BODY)
             val dateIdx = it.getColumnIndexOrThrow(Telephony.Sms.DATE)
 
             while (it.moveToNext()) {
-                val smsId = it.getLong(idIdx).toString()
                 val address = it.getString(addressIdx) ?: continue
                 val body = it.getString(bodyIdx) ?: continue
                 val date = it.getLong(dateIdx)
 
-                if (!isFinancialSender(address)) continue
+                // Composite key matches SmsBroadcastReceiver — prevents duplicates regardless
+                // of which path first inserts the transaction.
+                val smsId = "${address}_${date}"
+
                 if (repository.existsBySmsId(smsId)) continue
 
                 val parsed = parser.parse(body, date) ?: continue
@@ -67,19 +70,6 @@ class SmsImporter @Inject constructor(
                 )
             }
         }
-    }
-
-    private fun isFinancialSender(address: String): Boolean {
-        val upper = address.uppercase()
-        return FINANCIAL_SENDER_KEYWORDS.any { it in upper }
-    }
-
-    companion object {
-        private val FINANCIAL_SENDER_KEYWORDS = setOf(
-            "BANK", "HDFC", "ICICI", "SBI", "AXIS", "KOTAK", "INDUS",
-            "YES", "PNB", "BOB", "UNION", "CANARA", "IDFC", "FEDERAL",
-            "PAYTM", "PHONEPE", "GPAY", "AMAZON", "MOBIKWIK", "FREECHARGE",
-            "BAJAJ", "CITIBANK", "HSBC", "STANDARD", "RBL",
-        )
+        true
     }
 }

@@ -37,7 +37,8 @@ class SmsParser @Inject constructor() {
     fun detectPaymentMethod(body: String): PaymentMethod {
         val lower = body.lowercase()
         return when {
-            "credit card" in lower || "creditcard" in lower -> PaymentMethod.CREDIT_CARD
+            "credit card" in lower || "creditcard" in lower
+                    || "avl limit" in lower || "available limit" in lower -> PaymentMethod.CREDIT_CARD
             "atm" in lower || "cash withdrawal" in lower || "cash withdrawn" in lower -> PaymentMethod.ATM_WITHDRAWAL
             "upi" in lower || "bhim" in lower || "phonepe" in lower
                     || "gpay" in lower || "google pay" in lower -> PaymentMethod.UPI
@@ -52,10 +53,19 @@ class SmsParser @Inject constructor() {
     private fun isNonTransactional(lower: String): Boolean {
         val hasTransaction = "debited" in lower || "credited" in lower
                 || "withdrawn" in lower || "spent" in lower || "charged" in lower
+                || "deducted" in lower
+                // Credit card formats: "has been used for Rs.X", "utilized for Rs.X", "purchase of Rs.X"
+                || "used for" in lower || "used at" in lower || "utilized" in lower
+                || "purchase" in lower
         if (!hasTransaction) return true
 
-        return "otp" in lower && lower.indexOf("otp") < lower.indexOf("debit").takeIf { it >= 0 } ?: Int.MAX_VALUE
-                || "low balance" in lower
+        // Reject OTP messages: OTP keyword appears before any transaction keyword
+        val firstTxPos = listOf("debit", "credit", "spent", "charged", "used", "utilized", "purchase")
+            .mapNotNull { lower.indexOf(it).takeIf { i -> i >= 0 } }
+            .minOrNull() ?: Int.MAX_VALUE
+        if ("otp" in lower && lower.indexOf("otp") < firstTxPos) return true
+
+        return "low balance" in lower
                 || "minimum balance" in lower
     }
 
@@ -67,7 +77,9 @@ class SmsParser @Inject constructor() {
     private fun detectType(lower: String): TransactionType? = when {
         "debited" in lower || "spent" in lower
                 || "withdrawn" in lower || "charged" in lower
-                || "deducted" in lower -> TransactionType.DEBIT
+                || "deducted" in lower
+                || "used for" in lower || "used at" in lower
+                || "utilized" in lower || "purchase" in lower -> TransactionType.DEBIT
         "credited" in lower || "received" in lower
                 || "deposited" in lower -> TransactionType.CREDIT
         else -> null
@@ -120,9 +132,11 @@ class SmsParser @Inject constructor() {
             RegexOption.IGNORE_CASE,
         )
 
-        // Matches last 4-6 digits after a/c, account, acct, card identifiers
+        // Matches last 3-8 digits after a/c, account, card, or "ending" identifiers.
+        // Min 3 handles banks like ICICI that mask as "XX332" (3-digit suffix).
+        // "ending" handles patterns like "Card ending XX1234" common on HDFC/ICICI credit cards.
         private val ACCOUNT_REGEX = Regex(
-            """(?:a/c|account|acct|A/C|card)\s*(?:no\.?\s*|number\s*)?[xX*\-]*(\d{4,6})\b""",
+            """(?:a/c|account|acct|card|ending)\s*(?:no\.?\s*|number\s*|ending\s*)?[xX*\-]*(\d{3,8})\b""",
             RegexOption.IGNORE_CASE,
         )
 

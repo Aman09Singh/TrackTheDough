@@ -25,3 +25,6 @@ fun Long.toRelativeDateString(): String {
 
 fun Long.toFullDateString(): String =
     SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(this))
+
+fun Long.toDateOnlyString(): String =
+    SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(this))

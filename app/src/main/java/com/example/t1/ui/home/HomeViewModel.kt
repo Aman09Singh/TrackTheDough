@@ -4,61 +4,75 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.t1.domain.model.AccountSummary
 import com.example.t1.domain.model.Transaction
-import com.example.t1.domain.usecase.GetAccountSummaryUseCase
+import com.example.t1.domain.repository.TransactionRepository
 import com.example.t1.domain.usecase.ImportSmsHistoryUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.Calendar
 import javax.inject.Inject
 
-sealed interface HomeUiState {
-    data object Loading : HomeUiState
-    data class Ready(
-        val totalDebit: Double,
-        val totalCredit: Double,
-        val recentTransactions: List<Transaction>,
-    ) : HomeUiState
-    data class Error(val message: String) : HomeUiState
+enum class HomeTimeRange(val label: String) {
+    TODAY("Today"),
+    THIS_WEEK("This Week"),
+    THIS_MONTH("This Month"),
+    ALL("All Time");
+
+    fun cutoffMillis(): Long {
+        val cal = Calendar.getInstance()
+        return when (this) {
+            TODAY -> {
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                cal.timeInMillis
+            }
+            THIS_WEEK -> cal.timeInMillis - 7L * 24 * 60 * 60 * 1000
+            THIS_MONTH -> {
+                cal.set(Calendar.DAY_OF_MONTH, 1)
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                cal.timeInMillis
+            }
+            ALL -> 0L
+        }
+    }
 }
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val importSmsHistory: ImportSmsHistoryUseCase,
-    private val getAccountSummary: GetAccountSummaryUseCase,
-    private val dataStore: DataStore<Preferences>,
+    private val repository: TransactionRepository,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
-    val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+    private val _timeRange = MutableStateFlow(HomeTimeRange.TODAY)
+    val timeRange: StateFlow<HomeTimeRange> = _timeRange.asStateFlow()
 
-    init {
-        viewModelScope.launch {
-            getAccountSummary().collect { summary ->
-                _uiState.value = HomeUiState.Ready(
-                    totalDebit = summary.totalDebit,
-                    totalCredit = summary.totalCredit,
-                    recentTransactions = summary.recentTransactions,
-                )
-            }
-        }
+    val transactions: StateFlow<List<Transaction>> =
+        combine(repository.observeAll(), _timeRange) { all, range ->
+            all.filter { it.timestamp >= range.cutoffMillis() }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun setTimeRange(range: HomeTimeRange) {
+        _timeRange.value = range
     }
 
     fun startImportIfNeeded() {
         viewModelScope.launch {
-            val alreadyImported =
-                dataStore.data.first()[ImportSmsHistoryUseCase.SMS_IMPORTED_KEY] ?: false
-            if (!alreadyImported && hasSmsPermissions()) {
+            if (hasSmsPermissions()) {
                 try {
                     importSmsHistory()
                 } catch (_: Exception) {
@@ -70,9 +84,9 @@ class HomeViewModel @Inject constructor(
 
     private fun hasSmsPermissions(): Boolean =
         ContextCompat.checkSelfPermission(
-            context, Manifest.permission.READ_SMS
+            context, Manifest.permission.READ_SMS,
         ) == PackageManager.PERMISSION_GRANTED &&
         ContextCompat.checkSelfPermission(
-            context, Manifest.permission.RECEIVE_SMS
+            context, Manifest.permission.RECEIVE_SMS,
         ) == PackageManager.PERMISSION_GRANTED
 }

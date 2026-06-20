@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -25,9 +26,21 @@ class TransactionListViewModel @Inject constructor(
     private val _filter = MutableStateFlow(TransactionFilter())
     val filter: StateFlow<TransactionFilter> = _filter.asStateFlow()
 
-    val transactions: StateFlow<List<Transaction>> = _filter
-        .flatMapLatest { getTransactions(it) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    val transactions: StateFlow<List<Transaction>> =
+        combine(_filter, _searchQuery) { filter, query -> filter to query }
+            .flatMapLatest { (filter, query) ->
+                getTransactions(filter).map { txs ->
+                    if (query.isBlank()) txs
+                    else txs.filter { tx ->
+                        tx.merchant?.contains(query, ignoreCase = true) == true ||
+                        tx.description.contains(query, ignoreCase = true)
+                    }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val accounts: StateFlow<List<String>> = repository.observeAll()
         .map { txs -> txs.map { it.accountNumber }.distinct().sorted() }
@@ -35,5 +48,9 @@ class TransactionListViewModel @Inject constructor(
 
     fun updateFilter(filter: TransactionFilter) {
         _filter.value = filter
+    }
+
+    fun updateSearchQuery(query: String) {
+        _searchQuery.value = query
     }
 }

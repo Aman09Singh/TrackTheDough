@@ -139,4 +139,74 @@ class SmsParserTest {
     fun `detectPaymentMethod IMPS returns NET_BANKING`() {
         assertThat(parser.detectPaymentMethod("Rs 5000 debited via IMPS Ref 123")).isEqualTo(PaymentMethod.NET_BANKING)
     }
+
+    // ── "used for" / "utilized" credit card formats ───────────────────────────
+
+    @Test
+    fun `credit card SMS with 'used for' is parsed as DEBIT`() {
+        val sms = "Your HDFC Bank Credit Card XX1234 has been used for Rs.1500.00 at AMAZON on 20-Jun-26. Avl Limit Rs.48500"
+        val result = parser.parse(sms, 0L)
+        assertThat(result).isNotNull()
+        assertThat(result!!.type).isEqualTo(TransactionType.DEBIT)
+        assertThat(result.amount).isEqualTo(1500.00)
+        assertThat(result.paymentMethod).isEqualTo(PaymentMethod.CREDIT_CARD)
+    }
+
+    @Test
+    fun `credit card SMS with 'used at' is parsed as DEBIT`() {
+        val sms = "ICICI Bank Credit Card XX5678 used at ZOMATO for Rs.350.00 on 20Jun26. Avl Limit Rs.9650"
+        val result = parser.parse(sms, 0L)
+        assertThat(result).isNotNull()
+        assertThat(result!!.type).isEqualTo(TransactionType.DEBIT)
+        assertThat(result.amount).isEqualTo(350.00)
+    }
+
+    @Test
+    fun `ICICI 3-digit account suffix XX332 is parsed`() {
+        val sms = "ICICI Bank Acct XX332 debited for Rs 1.00 on 21-Jun-26; AMAN SINGH credited. UPI"
+        val result = parser.parse(sms, 0L)
+        assertThat(result).isNotNull()
+        assertThat(result!!.amount).isEqualTo(1.00)
+        assertThat(result.type).isEqualTo(TransactionType.DEBIT)
+        assertThat(result.accountNumber).isEqualTo("XX332")
+        assertThat(result.paymentMethod).isEqualTo(PaymentMethod.UPI)
+    }
+
+    @Test
+    fun `card ending format extracts account number`() {
+        val sms = "Rs.750.00 charged to your Card ending XX5678 at FLIPKART. Avl Limit Rs.32000"
+        val result = parser.parse(sms, 0L)
+        assertThat(result).isNotNull()
+        assertThat(result!!.accountNumber).isEqualTo("XX5678")
+    }
+
+    @Test
+    fun `OTP message with used keyword is rejected`() {
+        val sms = "OTP 834521 to be used for completing purchase. Do not share."
+        assertThat(parser.parse(sms, 0L)).isNull()
+    }
+
+    // ── Avl Limit → Credit Card ────────────────────────────────────────────────
+
+    @Test
+    fun `Avl Limit suffix marks transaction as CREDIT_CARD`() {
+        // "card" alone wouldn't trigger CREDIT_CARD — "avl limit" is the only signal
+        val sms = "Rs.750.00 charged to your Card XX5678 at FLIPKART. Avl Limit Rs.32000"
+        val result = parser.parse(sms, 0L)
+        assertThat(result).isNotNull()
+        assertThat(result!!.paymentMethod).isEqualTo(PaymentMethod.CREDIT_CARD)
+        assertThat(result.accountNumber).isEqualTo("XX5678")
+    }
+
+    @Test
+    fun `detectPaymentMethod Avl Limit returns CREDIT_CARD`() {
+        assertThat(parser.detectPaymentMethod("Rs 500 spent on Card XX1234. Avl Limit Rs 45000"))
+            .isEqualTo(PaymentMethod.CREDIT_CARD)
+    }
+
+    @Test
+    fun `detectPaymentMethod Available Limit returns CREDIT_CARD`() {
+        assertThat(parser.detectPaymentMethod("Rs 1000 charged. Available Limit: Rs 80000"))
+            .isEqualTo(PaymentMethod.CREDIT_CARD)
+    }
 }
