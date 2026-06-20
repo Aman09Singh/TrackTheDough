@@ -64,6 +64,7 @@ class HomeViewModel @Inject constructor(
     val transactions: StateFlow<List<Transaction>> =
         combine(repository.observeAll(), _timeRange) { all, range ->
             all.filter { it.timestamp >= range.cutoffMillis() }
+                .distinctBy { it.id }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     fun setTimeRange(range: HomeTimeRange) {
