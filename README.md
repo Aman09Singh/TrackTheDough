@@ -117,4 +117,4 @@ Run a single method:
 
 ## Authors
 
-- **Aman Singh** — [amantrieseverything@gmail.com](mailto:amantrieseverything@gmail.com)
+- **Aman Singh** — [amantrieseverything@gmail.com](mailto:aman09singh15@gmail.com)
