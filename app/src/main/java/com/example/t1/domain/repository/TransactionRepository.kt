@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface TransactionRepository {
     fun observeAll(): Flow<List<Transaction>>
+    fun observeById(id: Long): Flow<Transaction?>
     suspend fun insert(transaction: Transaction)
     suspend fun insertAll(transactions: List<Transaction>)
     suspend fun updateCategory(id: Long, category: Category, isManualCategory: Boolean)

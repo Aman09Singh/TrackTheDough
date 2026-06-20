@@ -18,6 +18,9 @@ class TransactionRepositoryImpl @Inject constructor(
     override fun observeAll(): Flow<List<Transaction>> =
         dao.observeAll().map { it.map(TransactionEntity::toDomain) }
 
+    override fun observeById(id: Long): Flow<Transaction?> =
+        dao.observeById(id).map { it?.toDomain() }
+
     override suspend fun insert(transaction: Transaction) {
         dao.insert(transaction.toEntity())
     }

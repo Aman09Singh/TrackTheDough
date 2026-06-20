@@ -9,6 +9,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.example.t1.ui.analytics.AnalyticsScreen
 import com.example.t1.ui.home.HomeScreen
+import com.example.t1.ui.permissions.PermissionScreen
 import com.example.t1.ui.transactions.TransactionDetailScreen
 import com.example.t1.ui.transactions.TransactionListScreen
 
@@ -22,6 +23,13 @@ fun AppNavGraph(
         startDestination = AppRoute.HOME,
         modifier = modifier,
     ) {
+        composable(AppRoute.PERMISSIONS) {
+            PermissionScreen(onPermissionsGranted = {
+                navController.navigate(AppRoute.HOME) {
+                    popUpTo(AppRoute.PERMISSIONS) { inclusive = true }
+                }
+            })
+        }
         composable(AppRoute.HOME) {
             HomeScreen(onTransactionClick = { id ->
                 navController.navigate(AppRoute.transactionDetail(id))
